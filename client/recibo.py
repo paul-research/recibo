@@ -183,6 +183,25 @@ class Recibo():
             [Recibo.TRANSFER_TYPEHASH, owner_address, receiver_address, value, valid_after, valid_before, nonce]
         ).hex()
         return web3.Web3.keccak(hexstr=encoded)
+    
+    @staticmethod
+    def compute_message_nonce(message_from, message_to, message_hex):
+        """
+        Computes nonce for transferWithAuthorizationWithMsg as keccak256(messageFrom, messageTo, message).
+        
+        Args:
+            message_from (str): Ethereum address starting with 0x prefix
+            message_to (str): Ethereum address starting with 0x prefix
+            message_hex (str): Hex representation of message bytes with 0x prefix
+            
+        Returns:
+            bytes: 32-byte nonce
+        """
+        encoded = eth_abi.encode(
+            ['address', 'address', 'bytes'],
+            [message_from, message_to, bytes.fromhex(message_hex[2:] if message_hex.startswith('0x') else message_hex)]
+        ).hex()
+        return web3.Web3.keccak(hexstr=encoded)
 
     def get_token_nonce(self, owner_address):
         """
@@ -493,15 +512,19 @@ class Recibo():
         Transfers funds from the owner to the receiver by calling transferWithAuthorizationWithMsg
         on the Recibo smart contract. The owner must sign an ERC-3009 transfer_authorization. 
         The Recibo smart contract will use this to call transferWithAuthorization() on the 
-        ERC-20 token to transfer funds to the receiver address. Typical usage: 
+        ERC-20 token to transfer funds to the receiver address. 
+        
+        Typical usage: 
 
         recibo = Recibo(config_filename)
         value = 10
         valid_after = 0
         valid_before = 115792089237316195423570985008687907853269984665640564039457584007913129639935
-        nonce = os.urandom(32)
         message = "hello world"
         message_as_hex = Recibo.encrypt(receiver_pub_keyfile, message)
+        metadata = "invoice"
+        nonce = Recibo.compute_message_nonce(owner_address, receiver_address, message_as_hex)
+        
         transfer_authorization = recibo.build_transfer_authorization(
             owner_address, 
             receiver_address, 
@@ -509,7 +532,7 @@ class Recibo():
             valid_after,
             valid_before,
             nonce)
-        signature = self.recibo.sign_transfer_authorization(owner_private_key, transfer_authorization)
+        signature = recibo.sign_transfer_authorization(owner_private_key, transfer_authorization)
         receipt = recibo.transfer_with_authorization_with_msg(
             tx_sender_private_key,
             owner_address,
@@ -533,7 +556,8 @@ class Recibo():
             value (int): Amount of ERC-20 token
             valid_after (int): A uint256 representing block time after which authorization is valid
             valid_before (int): A uint256 representing block time when authorization expires
-            nonce (bytes): A bytes32 nonce unique to this authorization
+            nonce (bytes): Must be computed using Recibo.compute_message_nonce()
+            signature (bytes): 65-byte signature from sign_transfer_authorization()
             metadata (str): arbitrary string that will added to calldata in the clear
             message_as_hex (str): Hex representation of bytes with 0x prefix,
                 - typically output of Recibo.encrypt().

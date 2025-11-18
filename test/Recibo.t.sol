@@ -115,8 +115,10 @@ contract ReciboExtensionTest is GaslessTestBase {
         assertEq(token.balanceOf(minter), minterBalance);
     }
 
-    function test_transferWithAuthorizationMsg(bytes32 nonce) public {
+    function test_transferWithAuthorizationMsg() public {
         uint value = 40;
+        bytes32 nonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
+        
         bytes32 transfer = buildTransferMessage(minter, user, 40, validAfter, validBefore, nonce, token);
         bytes memory signature = signTransfer(minterKey, transfer);
 
@@ -132,14 +134,47 @@ contract ReciboExtensionTest is GaslessTestBase {
         assertEq(token.balanceOf(minter), minterBalance - value);
     }
 
-    function test_transferWithAuthorizationError(bytes32 nonce) public {
+    function test_transferWithAuthorizationError() public {
         uint value = 1;
+        bytes32 nonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
         bytes32 transfer = buildTransferMessage(minter, user, 40, validAfter, validBefore, nonce, token);
         bytes memory signature = signTransfer(minterKey, transfer);
 
         vm.startPrank(minter);
         vm.expectRevert("Invalid signature");
         recibo.transferWithAuthorizationWithMsg(minter, minter, value, validAfter, validBefore, nonce, signature, info);
+        vm.stopPrank();
+    }
+    
+    function test_transferWithAuthorizationMsgRejectWrongNonce() public {
+        uint value = 40;
+        bytes32 wrongNonce = keccak256("wrong");
+        
+        bytes32 transfer = buildTransferMessage(minter, user, 40, validAfter, validBefore, wrongNonce, token);
+        bytes memory signature = signTransfer(minterKey, transfer);
+
+        vm.startPrank(user);
+        vm.expectRevert("Recibo: nonce must be message hash");
+        recibo.transferWithAuthorizationWithMsg(minter, user, value, validAfter, validBefore, wrongNonce, signature, info);
+        vm.stopPrank();
+    }
+    
+    function test_transferWithAuthorizationMsgRejectTamperedMessage() public {
+        uint value = 40;
+        bytes32 nonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
+        bytes32 transfer = buildTransferMessage(minter, user, 40, validAfter, validBefore, nonce, token);
+        bytes memory signature = signTransfer(minterKey, transfer);
+
+        Recibo.ReciboInfo memory tamperedInfo = Recibo.ReciboInfo(
+            info.messageFrom,
+            info.messageTo,
+            info.metadata,
+            abi.encode("TAMPERED MESSAGE")
+        );
+        
+        vm.startPrank(user);
+        vm.expectRevert("Recibo: nonce must be message hash");
+        recibo.transferWithAuthorizationWithMsg(minter, user, value, validAfter, validBefore, nonce, signature, tamperedInfo);
         vm.stopPrank();
     }
 }
