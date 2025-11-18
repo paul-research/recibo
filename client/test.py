@@ -55,6 +55,7 @@ class ReciboTest(unittest.TestCase):
     def setUpClass(cls):
         suppress_pgpy_warnings()
 
+        cls.anvil = None
         if not cls.is_process_running('anvil'):
             print("Starting anvil process...")
             cls.anvil = subprocess.Popen("anvil", shell=False, stdout=subprocess.DEVNULL)
@@ -668,5 +669,20 @@ class ReciboTest(unittest.TestCase):
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
     
+    @classmethod
+    def tearDownClass(cls):
+        """Cleanup: Kill anvil process if we started it"""
+        if hasattr(cls, 'anvil') and cls.anvil is not None:
+            print("Stopping anvil process...")
+            cls.anvil.terminate()
+            try:
+                cls.anvil.wait(timeout=5)
+                print("Anvil stopped gracefully.")
+            except subprocess.TimeoutExpired:
+                print("Anvil did not stop gracefully, killing...")
+                cls.anvil.kill()
+                cls.anvil.wait()
+                print("Anvil killed.")
+
 if __name__ == '__main__':
     unittest.main()
