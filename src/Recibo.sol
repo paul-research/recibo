@@ -91,7 +91,6 @@ contract Recibo is ReciboEvents, EIP712 {
         uint256 value,
         ReciboInfo calldata info
     ) public returns (bool) {
-        // Allow Relaying: If sender is not messageFrom, verify signature.
         if (info.messageFrom != msg.sender) {
             _verifySignature(info);
         }
@@ -123,7 +122,6 @@ contract Recibo is ReciboEvents, EIP712 {
         ReciboInfo calldata info
     ) public {
         require(owner != address(this));
-        // Allow Relaying
         if (info.messageFrom != owner) {
              _verifySignature(info);
         }
@@ -154,7 +152,6 @@ contract Recibo is ReciboEvents, EIP712 {
         bytes32 s,
         ReciboInfo calldata info
     ) public returns (bool) {
-        // Allow Relaying
         if (info.messageFrom != msg.sender) {
              _verifySignature(info);
         }
@@ -189,7 +186,6 @@ contract Recibo is ReciboEvents, EIP712 {
         bytes32 expectedNonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
         require(nonce == expectedNonce, "Recibo: nonce must be message hash");
         
-        // Allow Relaying
         if (info.messageFrom != from) {
             _verifySignature(info);
         }
