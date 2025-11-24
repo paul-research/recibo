@@ -232,8 +232,8 @@ class Recibo():
         """
         Signs a Recibo message using EIP-712.
         """
-        w3 = web3.Web3()
-        chain_id = self.token_config.w3.eth.chain_id
+        w3 = web3.Web3(web3.Web3.HTTPProvider(self.recibo_config.rpc_url))
+        chain_id = w3.eth.chain_id
         
         domain = {
             "name": "Recibo",
