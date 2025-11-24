@@ -353,7 +353,7 @@ contract ReciboGasTest is GaslessTestBase, BigMsg {
         info.message = BigMsg.getBytes(len);
 
         uint value = 1;
-        bytes32 nonce = keccak256(abi.encode(len));
+        bytes32 nonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
         bytes32 transfer = buildTransferMessage(minter, user, value, validAfter, validBefore, nonce, token);
         bytes memory signature = signTransfer(minterKey, transfer);
 

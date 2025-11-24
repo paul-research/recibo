@@ -148,6 +148,9 @@ contract Recibo is ReciboEvents {
         bytes memory signature,
         ReciboInfo calldata info
     ) public {
+        bytes32 expectedNonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
+        require(nonce == expectedNonce, "Recibo: nonce must be message hash");
+        
         emit TransferWithMsg(from, to, info.messageFrom, info.messageTo, value);
         _token.transferWithAuthorization(from, to, value, validAfter, validBefore, nonce, signature);
     }
