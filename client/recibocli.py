@@ -98,7 +98,9 @@ def respond_to_tx(args):
 def transfer_with_authorization_with_msg(args):
     owner_address = Account.from_key(args.owner_private_key).address
     ciphertext_msg_as_hex = Recibo.encrypt(args.encrypt_pub_keyfile, args.message, args.encrypt_alg_id)
-    nonce = os.urandom(32)
+    
+    nonce = Recibo.compute_message_nonce(owner_address, args.receiver_address, ciphertext_msg_as_hex)
+    
     valid_after = 0
     valid_before = 115792089237316195423570985008687907853269984665640564039457584007913129639935
 

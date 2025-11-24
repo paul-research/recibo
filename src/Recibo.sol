@@ -20,20 +20,26 @@ pragma solidity ^0.8.24;
 
 import {GaslessToken} from "./mock/GaslessToken.sol";
 import {ReciboEvents} from "./ReciboEvents.sol";
-
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
 * @title Recibo
 * @notice Lets callers record messages related to ERC-20 transfers
 */
-contract Recibo is ReciboEvents {
+contract Recibo is ReciboEvents, EIP712 {
     GaslessToken public immutable _token;
+    
+    bytes32 private constant MESSAGE_TYPEHASH = keccak256("ReciboInfo(address messageFrom,address messageTo,string metadata,bytes message,uint256 nonce)");
+    mapping(address => uint256) public nonces;
 
     struct ReciboInfo {
         address messageFrom;
         address messageTo;
         string metadata;
         bytes message;
+        uint256 nonce;
+        bytes signature;
     }
 
     /**
@@ -41,8 +47,23 @@ contract Recibo is ReciboEvents {
      * @dev Constructor sets target GaslessToken
      * @param token         Any GaslessToken
      */
-    constructor(GaslessToken token) {
+    constructor(GaslessToken token) EIP712("Recibo", "1") {
         _token = token;
+    }
+
+    function _verifySignature(ReciboInfo calldata info) internal {
+        require(info.nonce == nonces[info.messageFrom]++, "Recibo: invalid nonce");
+        bytes32 structHash = keccak256(abi.encode(
+            MESSAGE_TYPEHASH,
+            info.messageFrom,
+            info.messageTo,
+            keccak256(bytes(info.metadata)),
+            keccak256(info.message),
+            info.nonce
+        ));
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, info.signature);
+        require(signer == info.messageFrom, "Recibo: invalid signature");
     }
 
     /**
@@ -52,6 +73,9 @@ contract Recibo is ReciboEvents {
     function sendMsg(
         ReciboInfo calldata info
     ) public {
+        if (info.messageFrom != msg.sender) {
+            _verifySignature(info);
+        }
         emit SentMsg(msg.sender, info.messageFrom, info.messageTo);
     }
 
@@ -67,6 +91,9 @@ contract Recibo is ReciboEvents {
         uint256 value,
         ReciboInfo calldata info
     ) public returns (bool) {
+        if (info.messageFrom != msg.sender) {
+            _verifySignature(info);
+        }
         emit TransferWithMsg(msg.sender, to, info.messageFrom, info.messageTo, value);
         return _token.transferFrom(msg.sender, to, value);
     }
@@ -95,6 +122,10 @@ contract Recibo is ReciboEvents {
         ReciboInfo calldata info
     ) public {
         require(owner != address(this));
+        if (info.messageFrom != owner) {
+             _verifySignature(info);
+        }
+        
         emit ApproveWithMsg(owner, spender, info.messageFrom, info.messageTo, value);
         _token.permit(owner, spender, value, deadline, v, r, s);
     }
@@ -121,6 +152,10 @@ contract Recibo is ReciboEvents {
         bytes32 s,
         ReciboInfo calldata info
     ) public returns (bool) {
+        if (info.messageFrom != msg.sender) {
+             _verifySignature(info);
+        }
+        
         emit TransferWithMsg(msg.sender, to, info.messageFrom, info.messageTo, value);
         _token.permit(msg.sender, address(this), value, deadline, v, r, s);
         return _token.transferFrom(msg.sender, to, value);
@@ -151,6 +186,10 @@ contract Recibo is ReciboEvents {
         bytes32 expectedNonce = keccak256(abi.encode(info.messageFrom, info.messageTo, info.message));
         require(nonce == expectedNonce, "Recibo: nonce must be message hash");
         
+        if (info.messageFrom != from) {
+            _verifySignature(info);
+        }
+
         emit TransferWithMsg(from, to, info.messageFrom, info.messageTo, value);
         _token.transferWithAuthorization(from, to, value, validAfter, validBefore, nonce, signature);
     }

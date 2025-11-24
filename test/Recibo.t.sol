@@ -32,7 +32,7 @@ contract ReciboExtensionTest is GaslessTestBase {
     address private minter;
     uint256 private minterKey;
     bytes private msgBytes = abi.encode("message");
-    Recibo.ReciboInfo private info = Recibo.ReciboInfo(minter, user, "metadata", msgBytes);
+    Recibo.ReciboInfo private info = Recibo.ReciboInfo(minter, user, "metadata", msgBytes, 0, "");
 
     uint private deadline;
     uint256 private validBefore;
@@ -169,7 +169,9 @@ contract ReciboExtensionTest is GaslessTestBase {
             info.messageFrom,
             info.messageTo,
             info.metadata,
-            abi.encode("TAMPERED MESSAGE")
+            abi.encode("TAMPERED MESSAGE"),
+            0,
+            ""
         );
         
         vm.startPrank(user);
