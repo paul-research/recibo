@@ -20,6 +20,7 @@ from recibo_crypto import ReciboCrypto, CryptoModuleNotFoundError
 import os
 import psutil
 import subprocess
+import sys
 import unittest
 from web3 import HTTPProvider
 from anvil_web3 import AnvilWeb3
@@ -111,6 +112,13 @@ class ReciboTest(unittest.TestCase):
 
         cls.recibo.deploy(cls.deployer.private_key)
 
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, 'anvil') and cls.anvil:
+            print("Stopping anvil process...")
+            cls.anvil.terminate()
+            cls.anvil.wait()
+
     def test_encrypt(self):
         msg = 'hello world'
         crypto = ReciboCrypto.get_cryptomodule(self.alice.encrypt_alg_id)
@@ -166,6 +174,28 @@ class ReciboTest(unittest.TestCase):
     def test_send_msg(self):
         self.send_msg_helper(self.bob)
         self.send_msg_helper(self.dave)
+
+    def test_relay_msg(self):
+        sender = self.alice
+        receiver = self.bob
+        relayer = self.deployer
+        
+        message = "hello relayed world"
+        message_as_hex = Recibo.encrypt(receiver.encrypt_pub, message, encrypt_alg=receiver.encrypt_alg_id)
+        metadata = Recibo.PGP_METADATA
+        
+        nonce = self.recibo.get_recibo_nonce(sender.address)
+        signature = self.recibo.sign_recibo_message(sender.private_key, sender.address, receiver.address, metadata, message_as_hex, nonce)
+        
+        receipt = self.recibo.relay_msg(relayer.private_key, sender.address, receiver.address, metadata, message_as_hex, nonce, signature)
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt['status'], 1)
+        
+        # Verify
+        tx_hash = receipt['transactionHash'].hex()
+        tx = self.recibo.get_transaction(tx_hash)
+        plaintext = self.recibo.decrypt(receiver.encrypt_key, tx.message, receiver.password, encrypt_alg=receiver.encrypt_alg_id)
+        self.assertEqual(plaintext, message)
 
     def respond_to_tx_helper(self, receiver):
         owner = self.deployer
@@ -284,8 +314,12 @@ class ReciboTest(unittest.TestCase):
         value = 10
         valid_after = 0
         valid_before = ReciboTest.max_uint256
-        nonce = os.urandom(32)
         prev_balance = self.recibo.balance_of(receiver.address)
+
+        # owners call transferWithAuthorizationWithMsg 
+        message = 'hello world'
+        message_as_hex = Recibo.encrypt(receiver.encrypt_pub, message, encrypt_alg=receiver.encrypt_alg_id)
+        nonce = Recibo.compute_message_nonce(owner.address, receiver.address, message_as_hex)
 
         # generate EIP-2612 permit compatible with ERC20Permit.sol contract
         # to give deployed recibo contract allowance
@@ -299,9 +333,6 @@ class ReciboTest(unittest.TestCase):
         )
         signature = self.recibo.sign_transfer_authorization(owner.private_key, transfer_authorization)
 
-        # owners call transferWithAuthorizationWithMsg 
-        message = 'hello world'
-        message_as_hex = Recibo.encrypt(receiver.encrypt_pub, message, encrypt_alg=receiver.encrypt_alg_id)
         receipt = self.recibo.transfer_with_authorization_with_msg(
             receiver.private_key,
             owner.address,
@@ -415,11 +446,12 @@ class ReciboTest(unittest.TestCase):
     def transfer_with_authorization_with_msg_cli_helper(self, receiver):
         owner = self.deployer
         value = 10
-        message = 'This is a test message to send over the CLI.'
+        # Make message unique to ensure unique nonce for unencrypted messages
+        message = f'This is a test message to send over the CLI. {os.urandom(8).hex()}'
 
         # Define the command and arguments
         command = [
-            'python3', 'recibocli.py', 'transfer_with_authorization_with_msg',
+            sys.executable, 'recibocli.py', 'transfer_with_authorization_with_msg',
             '--owner_private_key', str(owner.private_key),
             '--receiver_address', str(receiver.address),
             '--value', str(value),
@@ -435,6 +467,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     def test_transfer_with_authorization_with_msg_cli(self):
@@ -447,7 +482,7 @@ class ReciboTest(unittest.TestCase):
 
         # Define the command and arguments
         command = [
-            'python3', 'recibocli.py', 'send_msg',
+            sys.executable, 'recibocli.py', 'send_msg',
             '--owner_private_key', str(owner.private_key),
             '--receiver_address', str(receiver.address),
             '--message', message
@@ -462,6 +497,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")        
 
     def test_send_msg_cli(self):
@@ -493,11 +531,12 @@ class ReciboTest(unittest.TestCase):
     def transfer_with_authorization_with_msg_response_cli_helper(self, receiver):
         owner = self.deployer
         value = 10
-        message = 'This is a test message to send over the CLI.'
+        # Make message unique to ensure unique nonce for unencrypted messages
+        message = f'This is a test message to send over the CLI. {os.urandom(8).hex()}'
 
         # Define the command and arguments
         command = [
-            'python3', 'recibocli.py', 'transfer_with_authorization_with_msg',
+            sys.executable, 'recibocli.py', 'transfer_with_authorization_with_msg',
             '--owner_private_key', str(owner.private_key),
             '--receiver_address', str(receiver.address),
             '--value', str(value),
@@ -514,6 +553,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     def test_transfer_with_authorization_with_msg_response_cli(self):
@@ -527,7 +569,7 @@ class ReciboTest(unittest.TestCase):
 
         # Define base command and arguments
         command = [
-            'python3', 'recibocli.py', 'transfer_from_with_msg',
+            sys.executable, 'recibocli.py', 'transfer_from_with_msg',
             '--owner_private_key', str(owner.private_key),
             '--receiver_address', str(receiver.address),
             '--value', str(value),
@@ -543,6 +585,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     def test_transfer_from_with_msg_cli_(self):
@@ -556,7 +601,7 @@ class ReciboTest(unittest.TestCase):
 
         # Define base command and arguments
         command = [
-            'python3', 'recibocli.py', 'permit_with_msg',
+            sys.executable, 'recibocli.py', 'permit_with_msg',
             '--owner_private_key', str(owner.private_key),
             '--spender_address', str(spender.address),
             '--value', str(value),
@@ -572,6 +617,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     def test_permit_with_msg_cli(self):
@@ -586,7 +634,7 @@ class ReciboTest(unittest.TestCase):
 
         # Define the base command and arguments
         command = [
-            'python3', 'recibocli.py', 'permit_and_transfer_with_msg',
+            sys.executable, 'recibocli.py', 'permit_and_transfer_with_msg',
             '--owner_private_key', str(owner.private_key),
             '--receiver_address', str(receiver.address),
             '--value', str(value),
@@ -602,6 +650,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     def test_permit_and_transfer_with_msg_cli(self):
@@ -611,7 +662,7 @@ class ReciboTest(unittest.TestCase):
     def read_msg_helper(self, receiver):
         # Define the command and arguments
         command = [
-            'python3', 'recibocli.py', 'read_msg',
+            sys.executable, 'recibocli.py', 'read_msg',
             '--receiver_address', str(receiver.address)
         ]
 
@@ -627,6 +678,9 @@ class ReciboTest(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     def test_read_msg(self):
@@ -638,12 +692,15 @@ class ReciboTest(unittest.TestCase):
         deployer = self.deployer
         # Define the command and arguments
         command = [
-            'python3', 'recibocli.py', 'deploy',
+            sys.executable, 'recibocli.py', 'deploy',
             '--deployer_private_key', str(deployer.private_key)
         ]
 
         # Run the command
         result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"CLI Error Output: {result.stderr}")
+            print(f"CLI Standard Output: {result.stdout}")
         self.assertEqual(result.returncode, 0, msg=f"CLI command failed with return code {result.returncode}")
 
     # dev note: this test redeploys the Recibo contract and breaks invariants in other tests.
@@ -660,7 +717,7 @@ class ReciboTest(unittest.TestCase):
         deployer = self.deployer
         # Define the command and arguments
         command = [
-            'python3', 'recibocli.py', 'deploy_recibo',
+            sys.executable, 'recibocli.py', 'deploy_recibo',
             '--deployer_private_key', str(deployer.private_key),
             '--token_address', str(self.recibo.token_config.contract_address)
         ]

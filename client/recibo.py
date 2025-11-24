@@ -18,6 +18,7 @@ from config_recibo import ReciboConfig
 from config_token import TokenConfig
 from recibo_crypto import ReciboCrypto
 from eth_account import Account
+from eth_account.messages import encode_typed_data
 import web3
 import eth_abi
 import json
@@ -118,7 +119,7 @@ class Recibo():
         self.recibo = self.recibo_config.get_contract()
 
     @staticmethod
-    def ReciboInfoStruct(sender_address, receiver_address, metadata, message_as_hex):
+    def ReciboInfoStruct(sender_address, receiver_address, metadata, message_as_hex, nonce=0, signature=b''):
         """
         Returns an array of values that can be passed to the Recibo contract
         whenever it requires a ReciboInfo struct as input.
@@ -129,9 +130,11 @@ class Recibo():
             metadata (str): Arbitrary string with metadata.
             message_as_hex (str): Hex representation of bytes with 0x prefix,
                 - typically output of Recibo.encrypt().
+            nonce (int): Nonce for replay protection.
+            signature (bytes): EIP-712 signature bytes.
         """
         message_bytes = bytes.fromhex(message_as_hex[2:])
-        return [sender_address, receiver_address, metadata, message_bytes]
+        return [sender_address, receiver_address, metadata, message_bytes, nonce, signature]
 
     @staticmethod
     def typed_data_hash(domain_separator, struct_hash):
@@ -212,6 +215,55 @@ class Recibo():
         """
         nonce = self.token.functions.nonces(owner_address).call()
         return nonce
+
+    def get_recibo_nonce(self, owner_address):
+        """
+        Returns the next nonce that owner_address must use for signing Recibo messages.
+        """
+        return self.recibo.functions.nonces(owner_address).call()
+
+    def get_recibo_domain_separator(self):
+        """
+        Returns the Recibo domain separator used for EIP-712 typed data hash.
+        """
+        return self.recibo.functions.DOMAIN_SEPARATOR().call()
+
+    def sign_recibo_message(self, signer_private_key, sender_address, receiver_address, metadata, message_as_hex, nonce):
+        """
+        Signs a Recibo message using EIP-712.
+        """
+        w3 = web3.Web3()
+        chain_id = self.token_config.w3.eth.chain_id
+        
+        domain = {
+            "name": "Recibo",
+            "version": "1",
+            "chainId": chain_id,
+            "verifyingContract": self.recibo_config.contract_address
+        }
+        
+        types = {
+            "ReciboInfo": [
+                {"name": "messageFrom", "type": "address"},
+                {"name": "messageTo", "type": "address"},
+                {"name": "metadata", "type": "string"},
+                {"name": "message", "type": "bytes"},
+                {"name": "nonce", "type": "uint256"}
+            ]
+        }
+        
+        message = {
+            "messageFrom": sender_address,
+            "messageTo": receiver_address,
+            "metadata": metadata,
+            "message": bytes.fromhex(message_as_hex[2:]),
+            "nonce": nonce
+        }
+        
+        encoded_data = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+        signed_message = w3.eth.account.sign_message(encoded_data, private_key=signer_private_key)
+        return signed_message.signature
+
 
     def get_token_domain_separator(self):
         """
@@ -313,6 +365,24 @@ class Recibo():
         info = Recibo.ReciboInfoStruct(owner_address, receiver_address, metadata, message_as_hex)
         tx_function = self.recibo.functions.sendMsg(info)
         receipt = self.recibo_config.send_transaction(tx_function, owner_private_key)
+        return receipt
+
+    def relay_msg(self, relayer_private_key, sender_address, receiver_address, metadata, message_as_hex, nonce, signature):
+        """
+        Relays a signed message on-chain.
+        
+        Args:
+            relayer_private_key (str): Private key of the account paying for gas (relayer)
+            sender_address (str): Address of the message signer (messageFrom)
+            receiver_address (str): Address of message recipient
+            metadata (str): Message metadata
+            message_as_hex (str): Hex-encoded message
+            nonce (int): Nonce used for signature
+            signature (bytes): EIP-712 signature
+        """
+        info = Recibo.ReciboInfoStruct(sender_address, receiver_address, metadata, message_as_hex, nonce, signature)
+        tx_function = self.recibo.functions.sendMsg(info)
+        receipt = self.recibo_config.send_transaction(tx_function, relayer_private_key)
         return receipt
 
     def approve_recibo(self, owner_private_key, value):
@@ -428,8 +498,8 @@ class Recibo():
                 - typically output of Recibo.encrypt().
         """
         owner_address = Account.from_key(owner_private_key).address
-        r_as_bytes = r.to_bytes((r.bit_length() + 7) // 8, byteorder='big')
-        s_as_bytes = s.to_bytes((s.bit_length() + 7) // 8, byteorder='big')
+        r_as_bytes = r.to_bytes(32, byteorder='big')
+        s_as_bytes = s.to_bytes(32, byteorder='big')
         info = Recibo.ReciboInfoStruct(owner_address, spender_address, metadata, message_as_hex)
         tx_function = self.recibo.functions.permitWithMsg(owner_address, spender_address, value, deadline, v, r_as_bytes, s_as_bytes, info)
         return self.recibo_config.send_transaction(tx_function, owner_private_key)
@@ -489,8 +559,8 @@ class Recibo():
                 - typically output of Recibo.encrypt().
         """
         owner_address = Account.from_key(owner_private_key).address
-        r_as_bytes = r.to_bytes((r.bit_length() + 7) // 8, byteorder='big')
-        s_as_bytes = s.to_bytes((s.bit_length() + 7) // 8, byteorder='big')
+        r_as_bytes = r.to_bytes(32, byteorder='big')
+        s_as_bytes = s.to_bytes(32, byteorder='big')
         info = Recibo.ReciboInfoStruct(owner_address, receiver_address, metadata, message_as_hex)
         tx_function = self.recibo.functions.permitAndTransferFromWithMsg(receiver_address, value, deadline, v, r_as_bytes, s_as_bytes, info)
         return self.recibo_config.send_transaction(tx_function, owner_private_key)
