@@ -99,7 +99,6 @@ def transfer_with_authorization_with_msg(args):
     owner_address = Account.from_key(args.owner_private_key).address
     ciphertext_msg_as_hex = Recibo.encrypt(args.encrypt_pub_keyfile, args.message, args.encrypt_alg_id)
     
-    # Nonce must be hash of message details for Recibo contract
     nonce = Recibo.compute_message_nonce(owner_address, args.receiver_address, ciphertext_msg_as_hex)
     
     valid_after = 0

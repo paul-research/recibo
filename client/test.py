@@ -446,7 +446,6 @@ class ReciboTest(unittest.TestCase):
     def transfer_with_authorization_with_msg_cli_helper(self, receiver):
         owner = self.deployer
         value = 10
-        # Make message unique to ensure unique nonce for unencrypted messages
         message = f'This is a test message to send over the CLI. {os.urandom(8).hex()}'
 
         # Define the command and arguments
@@ -531,7 +530,6 @@ class ReciboTest(unittest.TestCase):
     def transfer_with_authorization_with_msg_response_cli_helper(self, receiver):
         owner = self.deployer
         value = 10
-        # Make message unique to ensure unique nonce for unencrypted messages
         message = f'This is a test message to send over the CLI. {os.urandom(8).hex()}'
 
         # Define the command and arguments
